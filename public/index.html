@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>SSH Console</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/vendor/xterm.css">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<!-- Login / first-time setup -->
+<div id="login-screen" hidden>
+  <h1 id="login-title">SSH Console - Log in</h1>
+
+  <form id="login-form" autocomplete="on">
+    <p><label>Email: <input id="l-email" name="username" type="email" autocomplete="username" required></label></p>
+    <p><label>Password: <input id="l-pass" name="password" type="password" autocomplete="current-password" required></label></p>
+    <p id="l-totp-row" hidden><label>2FA code: <input id="l-totp" name="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="7"></label></p>
+    <p id="l-geo"></p>
+    <p class="err" id="l-err" role="alert"></p>
+    <p><button type="submit">Log in</button> <span id="login-status"></span></p>
+  </form>
+
+  <form id="setup-form" autocomplete="off" hidden>
+    <h2>First-time setup (step 1 of 2)</h2>
+    <p>Enter your email, the setup code (stored on the server) and a new password (at least 12 characters).</p>
+    <p><label>Email: <input id="s-email" type="email" autocomplete="username" required></label></p>
+    <p><label>Setup code: <input id="s-code" autocomplete="off" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX" required></label></p>
+    <p><label>New password: <input id="s-pass" type="password" autocomplete="new-password" minlength="12" required></label></p>
+    <p><label>Repeat password: <input id="s-pass2" type="password" autocomplete="new-password" minlength="12" required></label></p>
+    <p class="err" id="s-err" role="alert"></p>
+    <p><button type="submit">Next</button></p>
+  </form>
+
+  <form id="setup2-form" autocomplete="off" hidden>
+    <h2>Two-factor authentication (step 2 of 2)</h2>
+    <p>Scan the QR code with an authenticator app. The code is only required when you log in from outside Austria.</p>
+    <p><img id="s-qr" alt="2FA QR code" width="220" height="220"></p>
+    <p>Or enter manually: <code id="s-secret"></code></p>
+    <p><label>Code from the app: <input id="s-totp" inputmode="numeric" autocomplete="one-time-code" maxlength="7" required></label></p>
+    <p class="err" id="s2-err" role="alert"></p>
+    <p><button type="submit">Finish setup</button></p>
+  </form>
+</div>
+
+<!-- Main application -->
+<div id="app" hidden>
+  <div id="header">
+    <span class="brand"><i>&gt;_</i>SSH Console</span>
+    <form id="quick" autocomplete="off">
+      <input id="quick-input" placeholder="user@host[:port]" spellcheck="false" autocapitalize="off" aria-label="Quick connect">
+      <button type="submit">Connect</button>
+    </form>
+    <span class="spacer"></span>
+    <span class="right">
+      <button data-act="account">Account</button>
+      <button data-act="settings">Settings</button>
+      <button data-act="help">Help</button>
+      <button id="btn-logout">Log out</button>
+    </span>
+  </div>
+
+  <div id="toolbar">
+    <button data-act="new">New connection</button>
+    <button data-act="dup">Duplicate</button>
+    <button data-act="reconnect">Reconnect</button>
+    <button data-act="close-tab">Close</button>
+    <span class="sep"></span>
+    <button data-act="copy">Copy</button>
+    <button data-act="paste">Paste</button>
+    <button data-act="selectall">Select all</button>
+    <button data-act="find">Find</button>
+    <button data-act="clear">Clear</button>
+    <button data-act="savelog">Save log</button>
+    <span class="sep"></span>
+    <button data-act="sftp" id="tb-sftp">Files</button>
+    <button data-act="snippets">Snippets</button>
+    <button data-act="keys" id="tb-keys">Keys</button>
+    <button data-act="fullscreen" id="btn-fs">Fullscreen</button>
+  </div>
+
+  <div id="tabs"><button class="tab-new" data-act="new" title="New connection">+</button></div>
+
+  <div class="workspace" id="workspace">
+    <div class="termwrap" id="termwrap">
+      <div class="searchbar" id="searchbar" hidden>
+        <input id="search-input" placeholder="Find" autocomplete="off">
+        <button id="search-prev" title="Previous (Shift+Enter)">Prev</button>
+        <button id="search-next" title="Next (Enter)">Next</button>
+        <label><input type="checkbox" id="search-case"> Case</label>
+        <label><input type="checkbox" id="search-re"> Regex</label>
+        <button id="search-close">Close</button>
+      </div>
+      <div id="terms"></div>
+      <div id="empty" class="empty">
+        <p>No active session.</p>
+        <p><button data-act="new">New connection</button></p>
+      </div>
+      <div id="overlay" class="overlay" hidden></div>
+    </div>
+
+    <aside class="sftp" id="sftp" hidden>
+      <div class="head"><b>Files (SFTP)</b> <button data-act="sftp">Close</button></div>
+      <div class="row">
+        <button id="sf-up" title="Parent folder">Up</button>
+        <button id="sf-home" title="Home folder">Home</button>
+        <input id="sf-path" spellcheck="false" autocomplete="off">
+        <button id="sf-go" title="Open / reload">Go</button>
+      </div>
+      <div class="row">
+        <input id="sf-filter" type="search" placeholder="Filter" autocomplete="off" spellcheck="false">
+        <label><input type="checkbox" id="sf-hidden"> Hidden</label>
+      </div>
+      <div class="row">
+        <button id="sf-upload">Upload</button>
+        <button id="sf-download">Download</button>
+        <button id="sf-edit">Edit</button>
+        <button id="sf-newfile">New file</button>
+        <button id="sf-mkdir">New folder</button>
+        <button id="sf-rename">Rename</button>
+        <button id="sf-chmod">Mode</button>
+        <button id="sf-copypath">Copy path</button>
+        <button id="sf-delete" class="danger">Delete</button>
+        <button id="sf-cd" title="Change to this folder in the terminal">cd here</button>
+        <input type="file" id="sf-file" multiple hidden>
+      </div>
+      <div class="sftp-list" id="sf-list" tabindex="0"></div>
+      <div id="sf-prog" hidden><progress id="sf-bar" max="100" value="0"></progress> <span id="sf-prog-text"></span></div>
+      <div id="sf-foot">Drop files here to upload</div>
+    </aside>
+  </div>
+
+  <div id="keybar" hidden>
+    <button data-k="esc">Esc</button> <button data-k="tab">Tab</button>
+    <button data-k="ctrl" class="mod">Ctrl</button> <button data-k="alt" class="mod">Alt</button>
+    <button data-k="up">Up</button> <button data-k="down">Down</button> <button data-k="left">Left</button> <button data-k="right">Right</button>
+    <button data-k="del">Del</button> <button data-k="ins">Ins</button> <button data-k="home">Home</button> <button data-k="end">End</button> <button data-k="pgup">PgUp</button> <button data-k="pgdn">PgDn</button>
+    <button data-k="|">|</button> <button data-k="/">/</button> <button data-k="~">~</button> <button data-k="-">-</button> <button data-k="_">_</button> <button data-k="\">\</button>
+    <button data-k="fkeys">F1-F12</button> <button data-k="ctrlc">^C</button> <button data-k="ctrld">^D</button> <button data-k="ctrlz">^Z</button>
+    <button data-k="paste">Paste</button>
+  </div>
+  <div id="fkeys" hidden></div>
+
+  <div id="statusbar">
+    <span id="st-state" class="grow">Ready</span>
+    <span id="st-host"></span>
+    <span id="st-up"></span>
+    <span id="st-size"></span>
+    <span id="st-lat">- ms</span>
+    <span id="st-lock"></span>
+  </div>
+</div>
+
+<!-- Dialogs -->
+<dialog id="dlg-connect">
+  <form method="dialog" id="connect-form" autocomplete="on">
+    <h2>New SSH connection</h2>
+    <fieldset><legend>Saved profiles</legend>
+      <select id="c-profile"></select>
+      <button type="button" id="c-prof-del">Delete</button>
+    </fieldset>
+    <fieldset><legend>Target</legend>
+      <p><label>Host / IP: <input id="c-host" name="host" autocomplete="off" spellcheck="false" required></label></p>
+      <p><label>Port: <input id="c-port" name="port" type="number" min="1" max="65535" value="22"></label></p>
+      <p><label>User: <input id="c-user" name="user" autocomplete="username" spellcheck="false" required></label></p>
+    </fieldset>
+    <fieldset><legend>Authentication</legend>
+      <p>
+        <label><input type="radio" name="auth" value="password" checked> Password</label>
+        <label><input type="radio" name="auth" value="key"> Private key</label>
+      </p>
+      <div id="c-auth-pw"><label>Password: <input id="c-pass" type="password" autocomplete="current-password"></label></div>
+      <div id="c-auth-key" hidden>
+        <p><textarea id="c-key" rows="5" cols="50" spellcheck="false" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"></textarea></p>
+        <p><button type="button" id="c-key-file">Load file</button><input type="file" id="c-key-input" hidden> (not stored)</p>
+        <p><label>Passphrase: <input id="c-pp" type="password" autocomplete="off"></label></p>
+      </div>
+    </fieldset>
+    <fieldset><legend>Options</legend>
+      <p><label><input type="checkbox" id="c-save"> Save as profile (without password/key)</label></p>
+      <p id="c-name-row" hidden><label>Profile name: <input id="c-name" autocomplete="off"></label></p>
+      <p><label>Run after connect: <input id="c-startup" autocomplete="off" spellcheck="false" placeholder="optional, e.g. tmux attach || tmux"></label></p>
+      <p><label><input type="checkbox" id="c-legacy"> Allow legacy algorithms (insecure, only for very old devices)</label></p>
+    </fieldset>
+    <p class="err" id="c-err" role="alert"></p>
+    <p id="c-status"></p>
+    <div class="actions"><button type="button" id="c-cancel">Cancel</button><button type="submit" id="c-go">Connect</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-hostkey">
+  <h2 id="hk-title">Unknown server</h2>
+  <p id="hk-text"></p>
+  <p>Fingerprint (<span id="hk-alg"></span>):</p>
+  <pre class="fp" id="hk-fp"></pre>
+  <p id="hk-old" hidden>Previously stored:</p>
+  <pre class="fp" id="hk-oldfp" hidden></pre>
+  <p><label><input type="checkbox" id="hk-remember" checked> Remember this key</label></p>
+  <div class="actions"><button id="hk-no">Cancel</button><button id="hk-yes" class="primary">Trust and connect</button></div>
+</dialog>
+
+<dialog id="dlg-kbd">
+  <form id="kbd-form" method="dialog">
+    <h2 id="kbd-title">Additional authentication</h2>
+    <p id="kbd-instr"></p>
+    <div id="kbd-fields"></div>
+    <div class="actions"><button type="button" id="kbd-cancel">Cancel</button><button type="submit">OK</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-settings">
+  <form method="dialog">
+    <h2>Settings</h2>
+    <fieldset><legend>Interface</legend>
+      <p><label>Theme: <select id="o-ui"><option value="auto">Follow system</option><option value="light">Light</option><option value="dark">Dark</option></select></label></p>
+    </fieldset>
+    <fieldset><legend>Terminal</legend>
+      <p><label>Color scheme: <select id="o-theme"></select></label></p>
+      <p><label>Font: <select id="o-font"></select></label></p>
+      <p><label>Font size: <input id="o-size" type="number" min="8" max="40"> px</label></p>
+      <p><label>Cursor: <select id="o-cursor"><option value="block">Block</option><option value="bar">Bar</option><option value="underline">Underline</option></select></label></p>
+      <p><label>Line height: <input id="o-lh" type="number" min="1" max="1.6" step="0.05"></label></p>
+      <p><label><input type="checkbox" id="o-blink"> Blinking cursor</label></p>
+      <p><label><input type="checkbox" id="o-webgl"> GPU rendering (WebGL, faster)</label></p>
+    </fieldset>
+    <fieldset><legend>Behavior</legend>
+      <p><label>Scrollback (lines): <input id="o-scroll" type="number" min="500" max="200000" step="500"></label></p>
+      <p><label><input type="checkbox" id="o-autocopy"> Copy selected text automatically</label></p>
+      <p><label><input type="checkbox" id="o-rclick"> Right click pastes (like PuTTY)</label></p>
+      <p><label><input type="checkbox" id="o-confirmpaste"> Ask before pasting multiple lines</label></p>
+      <p><label><input type="checkbox" id="o-bell"> Beep on bell</label></p>
+      <p><label><input type="checkbox" id="o-optmeta"> Alt/Option sends escape prefix (Meta)</label></p>
+    </fieldset>
+    <div class="actions"><button id="o-reset" type="button">Defaults</button><button id="o-ok" value="ok" class="primary">OK</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-account" class="wide">
+  <h2>Account and security</h2>
+  <fieldset><legend>Open SSH sessions on the server</legend>
+    <div id="acc-sessions" class="tablebox"></div>
+  </fieldset>
+  <fieldset><legend>Known servers (host keys)</legend>
+    <div id="acc-hosts" class="tablebox"></div>
+  </fieldset>
+  <fieldset><legend>Change password</legend>
+    <form id="pw-form" autocomplete="off">
+      <p><label>Current: <input id="pw-cur" type="password" autocomplete="current-password" required></label></p>
+      <p><label>New: <input id="pw-new" type="password" autocomplete="new-password" minlength="12" required></label></p>
+      <p id="pw-totp-row" hidden><label>2FA code: <input id="pw-totp" inputmode="numeric" maxlength="7"></label></p>
+      <p id="pw-msg"></p>
+      <p><button type="submit">Change password</button></p>
+    </form>
+  </fieldset>
+  <fieldset><legend>Activity log</legend>
+    <div id="acc-audit" class="tablebox tall"></div>
+  </fieldset>
+  <div class="actions"><button id="acc-logout-all" class="danger">Log out everywhere and end all sessions</button><button id="acc-close" class="primary">Close</button></div>
+</dialog>
+
+<dialog id="dlg-help" class="wide">
+  <h2>Help</h2>
+  <h3>Keyboard</h3>
+  <ul>
+    <li>All keys are sent to the server: F1-F12 (also with Shift/Ctrl/Alt), arrows, Home/End, PgUp/PgDn, Ins/Del, Ctrl and Alt combinations, Esc, Tab.</li>
+    <li>Only these shortcuts belong to the web console: <kbd>Ctrl+Shift+C</kbd> / <kbd>V</kbd> copy / paste, <kbd>Ctrl+Shift+F</kbd> find, <kbd>Ctrl+Shift+N</kbd> new connection, <kbd>Ctrl+Shift+Left/Right</kbd> switch tab, <kbd>Ctrl+Shift++/-/0</kbd> font size.</li>
+    <li>Fullscreen (Chrome/Edge) enables keyboard lock: then <kbd>Ctrl+W</kbd>, <kbd>Ctrl+T</kbd>, <kbd>Ctrl+N</kbd>, <kbd>Ctrl+Tab</kbd> and <kbd>F11</kbd> are also sent to the server. Hold Esc for 2 seconds to leave fullscreen. Outside fullscreen a web page cannot capture these few browser keys.</li>
+    <li>On phones: the Keys button shows a bar with Esc, Tab, Ctrl, Alt, arrows, F1-F12 and more.</li>
+    <li>Selecting text copies it automatically, right click pastes (can be disabled in Settings).</li>
+  </ul>
+  <h3>Features</h3>
+  <ul>
+    <li>Quick connect in the header: type <code>user@host:port</code> and press Enter, then enter the password.</li>
+    <li>Tabs: double-click to rename, drag to reorder, middle-click to close. A bold tab name means new output arrived while the tab was in the background.</li>
+    <li>Snippets: saved commands you can send to the active terminal (stored on the server).</li>
+    <li>Profiles can run a startup command after connecting, for example <code>tmux attach || tmux</code>.</li>
+    <li>Files panel: filter, hidden files toggle, drag and drop upload, download (folders as tar.gz), rename, permissions, and an editor for text files up to 1 MB.</li>
+    <li>Settings: light/dark interface, terminal color schemes, line height, and a warning before pasting multiple lines.</li>
+  </ul>
+  <h3>Notes</h3>
+  <ul>
+    <li>Sessions keep running on the server for 30 minutes if the page is closed or the network drops. They reconnect when you open the page again.</li>
+    <li>Passwords and keys are never stored - only host, port and user if you save a profile.</li>
+    <li>Host keys are confirmed on first connect and remembered. A changed key triggers a warning.</li>
+  </ul>
+  <div class="actions"><button id="help-close" class="primary">Close</button></div>
+</dialog>
+
+<dialog id="dlg-snippets" class="wide">
+  <h2>Snippets</h2>
+  <p class="muted">Saved commands you can send to the active terminal. Stored on the server, never any passwords.</p>
+  <div class="tablebox" id="sn-list"></div>
+  <fieldset style="margin-top:12px"><legend id="sn-legend">New snippet</legend>
+    <p><label>Name: <input id="sn-name" autocomplete="off" maxlength="60"></label></p>
+    <p><label>Command: <textarea id="sn-cmd" class="mono" rows="3" spellcheck="false" maxlength="4000"></textarea></label></p>
+    <p><label><input type="checkbox" id="sn-enter" checked> Press Enter after sending</label></p>
+    <div class="actions" style="margin-top:0"><button id="sn-clear" type="button">Clear form</button><button id="sn-save" type="button">Save snippet</button></div>
+  </fieldset>
+  <div class="actions"><button id="sn-delete" type="button" class="danger">Delete selected</button><button id="sn-run" type="button" class="primary">Run in active terminal</button><button id="sn-close" type="button">Close</button></div>
+</dialog>
+
+<dialog id="dlg-edit" class="huge">
+  <h2 id="ed-title">Edit file</h2>
+  <textarea id="ed-text" spellcheck="false" wrap="off"></textarea>
+  <p id="ed-msg" class="muted"></p>
+  <div class="actions"><button id="ed-close" type="button">Close</button><button id="ed-save" type="button" class="primary">Save (Ctrl+S)</button></div>
+</dialog>
+
+<dialog id="dlg-prompt">
+  <form method="dialog" id="prompt-form">
+    <h2 id="pr-title"></h2>
+    <p id="pr-text"></p>
+    <p><input id="pr-input" autocomplete="off" spellcheck="false"></p>
+    <div class="actions"><button type="button" id="pr-cancel">Cancel</button><button type="submit">OK</button></div>
+  </form>
+</dialog>
+
+<script src="/vendor/xterm.js"></script>
+<script src="/vendor/addon-fit.js"></script>
+<script src="/vendor/addon-webgl.js"></script>
+<script src="/vendor/addon-web-links.js"></script>
+<script src="/vendor/addon-search.js"></script>
+<script src="/vendor/addon-unicode11.js"></script>
+<script src="/vendor/addon-clipboard.js"></script>
+<script src="/vendor/addon-image.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

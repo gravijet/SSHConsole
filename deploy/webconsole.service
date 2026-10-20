@@ -1,0 +1,50 @@
+[Unit]
+Description=Benjamin Console (Web-SSH-Gateway)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=webconsole
+Group=webconsole
+WorkingDirectory=/home/benj/WebConsole
+ExecStart=/usr/bin/node --max-old-space-size=256 server.js
+Environment=NODE_ENV=production
+Environment=PORT=3099
+Environment=HOST=127.0.0.1
+Environment=PUBLIC_ORIGIN=https://ssh.benjaminberger.at
+Environment=ALLOWED_EMAIL=benjaminburger3456@gmail.com
+Environment=HOME_COUNTRY=AT
+Environment=DATA_DIR=/var/lib/webconsole
+StateDirectory=webconsole
+StateDirectoryMode=0700
+Restart=always
+RestartSec=2
+LimitNOFILE=8192
+MemoryMax=512M
+
+# Hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=no
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
